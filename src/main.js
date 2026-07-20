@@ -50,6 +50,54 @@ const enemies=[];
 function makeEnemy(x,z,boss=false){const g=humanoid(boss?0x21122e:0x57252c,boss?1.75:1);g.position.set(x,0,z);if(boss){const horn=new THREE.Mesh(new THREE.ConeGeometry(.3,1,6),mats.gold);horn.position.set(0,3.35,0);g.add(horn)}const e={mesh:g,hp:boss?260:55,maxHp:boss?260:55,boss,alive:true,lastHit:0,attackWait:0,home:new THREE.Vector3(x,0,z)};g.visible=!boss;enemies.push(e);return e}
 [[-7,2],[7,-6],[-4,-7]].forEach(p=>makeEnemy(...p)); const boss=makeEnemy(0,-58,true);
 
+const fxGroup=new THREE.Group();scene.add(fxGroup);const activeFx=[];
+function fxMat(color,opacity=.85){return new THREE.MeshBasicMaterial({color,transparent:true,opacity,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})}
+function fadeMaterial(mat,alpha){if(Array.isArray(mat))mat.forEach(m=>fadeMaterial(m,alpha));else if(mat&&'opacity'in mat)mat.opacity=mat.userData.baseOpacity*alpha}
+function disposeFx(obj){obj.traverse?.(o=>{if(o.isMesh){o.geometry.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material.dispose()}})}
+function trackFx(obj,life,options={}){obj.userData.fx={life,maxLife:life,baseScale:obj.scale.clone(),baseIntensity:obj.intensity||0,...options};obj.traverse?.(o=>{if(o.material){const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.userData.baseOpacity=m.opacity)}});activeFx.push(obj);fxGroup.add(obj);return obj}
+function forwardVector(){return new THREE.Vector3(Math.sin(player.rotation.y),0,Math.cos(player.rotation.y)).normalize()}
+function orientToForward(obj,forward){obj.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),forward.clone().normalize())}
+function arcMesh(inner,outer,thetaStart,thetaLength,color,opacity){return new THREE.Mesh(new THREE.RingGeometry(inner,outer,72,1,thetaStart,thetaLength),fxMat(color,opacity))}
+function spawnSwordSlash(skill,forward){
+  const g=new THREE.Group();
+  g.position.copy(player.position).addScaledVector(forward,skill?2.05:1.45);g.position.y=skill?1.5:1.62;orientToForward(g,forward);
+  const sweep=arcMesh(skill?.6:.38,skill?4.15:2.05,-.78,skill?Math.PI*1.38:Math.PI*1.08,skill?0x85f6ff:0xb8f2ff,.86);sweep.rotation.z=skill?-.24:-.45;g.add(sweep);
+  const core=arcMesh(skill?1.15:.65,skill?2.55:1.28,-.62,skill?Math.PI*1.05:Math.PI*.82,0xffe0a3,.72);core.rotation.z=skill?.08:-.25;g.add(core);
+  const edge=arcMesh(skill?3.75:1.85,skill?4.45:2.18,-.7,skill?Math.PI*1.12:Math.PI*.9,0xffffff,.58);edge.rotation.z=skill?-.08:-.34;g.add(edge);
+  trackFx(g,skill?.48:.3,{kind:'slash',grow:skill?.46:.18,spinZ:skill?2.2:4.1});
+}
+function spawnShockwave(){
+  const ring=new THREE.Mesh(new THREE.RingGeometry(.75,1.02,96,1),fxMat(0x9aefff,.68));
+  ring.position.copy(player.position);ring.position.y=.08;ring.rotation.x=-Math.PI/2;trackFx(ring,.55,{kind:'shockwave',grow:5.4});
+  const inner=new THREE.Mesh(new THREE.RingGeometry(.18,.3,80,1),fxMat(0xffd07a,.5));
+  inner.position.copy(player.position);inner.position.y=.1;inner.rotation.x=-Math.PI/2;trackFx(inner,.42,{kind:'shockwave',grow:8});
+}
+function spawnImpactVfx(position,skill,forward){
+  const flash=new THREE.PointLight(skill?0x87f5ff:0xffd28a,skill?58:32,skill?8:5);flash.position.copy(position).add(new THREE.Vector3(0,1.45,0));trackFx(flash,skill?.32:.22,{kind:'flash'});
+  const ring=new THREE.Mesh(new THREE.RingGeometry(.25,.5,48,1),fxMat(skill?0x8fefff:0xffd28a,.78));
+  ring.position.copy(position).add(new THREE.Vector3(0,1.35,0));orientToForward(ring,forward);trackFx(ring,skill?.34:.24,{kind:'impact',grow:skill?2.8:1.7});
+  const count=skill?16:8;
+  for(let i=0;i<count;i++){
+    const spark=new THREE.Mesh(new THREE.TetrahedronGeometry(skill?.09:.065,0),fxMat(i%3===0?0xffffff:skill?0x80ecff:0xffc466,.86));
+    spark.position.copy(position).add(new THREE.Vector3((Math.random()-.5)*.45,1.1+Math.random()*.9,(Math.random()-.5)*.45));
+    const side=new THREE.Vector3((Math.random()-.5)*2,Math.random()*1.6+.25,(Math.random()-.5)*2).normalize().multiplyScalar(skill?4.2:2.7);
+    trackFx(spark,.34+Math.random()*.16,{kind:'spark',velocity:side,spinX:6+Math.random()*6,spinY:4+Math.random()*5});
+  }
+}
+function spawnSwordVfx(skill,hits){
+  const forward=forwardVector();spawnSwordSlash(skill,forward);if(skill)spawnShockwave();
+  for(const hit of hits)spawnImpactVfx(hit.position,skill,forward);
+}
+function updateVfx(dt){
+  for(let i=activeFx.length-1;i>=0;i--){
+    const obj=activeFx[i],fx=obj.userData.fx;fx.life-=dt;const t=1-Math.max(0,fx.life)/fx.maxLife,alpha=Math.max(0,fx.life/fx.maxLife);
+    if(fx.velocity)obj.position.addScaledVector(fx.velocity,dt);if(fx.spinX)obj.rotation.x+=fx.spinX*dt;if(fx.spinY)obj.rotation.y+=fx.spinY*dt;if(fx.spinZ)obj.rotation.z+=fx.spinZ*dt;
+    if(fx.grow)obj.scale.copy(fx.baseScale).multiplyScalar(1+t*fx.grow);
+    if(obj.isLight)obj.intensity=fx.baseIntensity*alpha;else obj.traverse?.(o=>{if(o.material)fadeMaterial(o.material,alpha)});
+    if(fx.life<=0){activeFx.splice(i,1);fxGroup.remove(obj);disposeFx(obj)}
+  }
+}
+
 const hud=document.createElement('div');hud.className='hud';hud.innerHTML=`<div class="topbar"><div class="name">카일 로언 · LV <b id="lv">1</b></div><div class="bar"><i id="hp"></i></div><div class="stats"><span id="hpText"></span> · 공격력 <b id="atk"></b> · 회복약 <b id="pots"></b></div></div><div class="quest"><small>QUEST LOG</small><div id="questText"></div></div><div id="bossHud" class="boss" hidden><b>심연 구동병기 · 모르가드</b><div class="bar"><i id="bossHp"></i></div></div><div class="skills"><div class="skill"><b>SPACE</b><span>서약 베기</span></div><div class="skill"><b>Q</b><span id="skillLabel">성흔 폭발</span></div><div class="skill"><b>R</b><span>회복약</span></div></div><div class="help">WASD 이동 · SHIFT 달리기 · 우클릭 드래그 시점 · 휠 줌 · E 상호작용</div><div id="prompt"></div><div id="layer"></div><div class="mobile-controls" aria-label="터치 조작"><div class="move-pad" data-touch-role="stick" aria-label="이동"><div class="stick-base"><div class="stick-knob"></div></div></div><div class="touch-zoom" aria-label="줌"><button type="button" data-touch-action="zoomIn" aria-label="확대">+</button><button type="button" data-touch-action="zoomOut" aria-label="축소">-</button></div><div class="action-pad" aria-label="행동"><button type="button" data-touch-action="attack" aria-label="공격">검</button><button type="button" data-touch-action="skill" aria-label="성흔 폭발">성</button><button type="button" data-touch-action="interact" aria-label="상호작용">대화</button><button type="button" data-touch-action="heal" aria-label="회복약">회복</button></div></div>`;root.append(hud);
 const $=id=>document.querySelector('#'+id); let toastTimer;
 function toast(t){clearTimeout(toastTimer);const old=document.querySelector('.toast');if(old)old.remove();const n=document.createElement('div');n.className='toast';n.textContent=t;hud.append(n);toastTimer=setTimeout(()=>n.remove(),3000)}
@@ -81,15 +129,15 @@ function interact(){if(state.phase===PHASE.MEET_ELDER&&near(elder,4))say('촌장
  else if(state.phase===PHASE.CLAIM_RELIC&&near(relic,4))say('봉인된 기억',['상자 안의 검편이 카일의 손에서 푸른 빛을 토한다. 「새벽의 서약은 왕좌가 아니라 백성을 향한다.」','멀리서 한 여인의 목소리가 들린다. “그 문장을 읽을 수 있다면… 당신도 기사단의 피를 이었군요.”'],()=>phaseEvent('relic'));
  else if(state.phase===PHASE.RECRUIT&&near(companion,4))say('세라 벨른',['나는 새벽 기사단의 마지막 종기사, 세라 벨른. 우리 기사단을 배신자로 만든 자가 저 관문 너머의 병기를 움직이고 있어요.','혼자서는 막을 수 없어요. 당신의 검편과 내 방패를 합치죠. 이번만큼은 같은 운명을 믿어 보겠습니다.'],()=>phaseEvent('companion'));
 }
-function attack(skill){if(skill&&game.time<game.skillReady)return;if(!skill&&game.time<game.attackReady)return;game.attackReady=game.time+.42;if(skill){game.skillReady=game.time+6;toast('성흔 폭발!')}sword.rotation.z=skill?-2:-1.4;setTimeout(()=>sword.rotation.z=-.25,170);const range=skill?5.5:2.8,damage=skill?game.attack*1.7:game.attack;for(const e of enemies){if(!e.alive||!e.mesh.visible)continue;if(player.position.distanceTo(e.mesh.position)<range){e.hp-=damage;e.lastHit=game.time;e.mesh.position.add(e.mesh.position.clone().sub(player.position).setY(0).normalize().multiplyScalar(skill?1.6:.7));if(e.hp<=0){e.alive=false;e.mesh.visible=false;if(e.boss){toast('고대 병기의 핵이 붕괴한다');phaseEvent('boss')}else{game.xp+=35;phaseEvent('scout');toast(`정찰병 격퇴 · 경험치 +35 (${state.kills}/3)`)}}}}renderHud()}
+function attack(skill){if(skill&&game.time<game.skillReady)return;if(!skill&&game.time<game.attackReady)return;game.attackReady=game.time+.42;if(skill){game.skillReady=game.time+6;toast('성흔 폭발!')}sword.rotation.z=skill?-2:-1.4;setTimeout(()=>sword.rotation.z=-.25,170);const range=skill?5.5:2.8,damage=skill?game.attack*1.7:game.attack,hits=[];for(const e of enemies){if(!e.alive||!e.mesh.visible)continue;if(player.position.distanceTo(e.mesh.position)<range){const hitPosition=e.mesh.position.clone();hits.push({position:hitPosition,boss:e.boss});e.hp-=damage;e.lastHit=game.time;e.mesh.position.add(e.mesh.position.clone().sub(player.position).setY(0).normalize().multiplyScalar(skill?1.6:.7));if(e.hp<=0){e.alive=false;e.mesh.visible=false;if(e.boss){toast('고대 병기의 핵이 붕괴한다');phaseEvent('boss')}else{game.xp+=35;phaseEvent('scout');toast(`정찰병 격퇴 · 경험치 +35 (${state.kills}/3)`)}}}}spawnSwordVfx(skill,hits);renderHud()}
 function resetAfterFall(){game.hp=game.maxHp;player.position.set(0,0,20);toast('의식을 되찾았다 · 마을로 귀환')}
 function updatePlayer(dt){let f=THREE.MathUtils.clamp((keys.KeyW?1:0)-(keys.KeyS?1:0)+mobileMove.forward,-1,1),s=THREE.MathUtils.clamp((keys.KeyD?1:0)-(keys.KeyA?1:0)+mobileMove.side,-1,1);if(f||s){const dir=new THREE.Vector3(s,0,-f).normalize().applyAxisAngle(new THREE.Vector3(0,1,0),yaw);const speed=keys.ShiftLeft?9:5.7;player.position.addScaledVector(dir,dt*speed);player.rotation.y=Math.atan2(dir.x,dir.z);player.position.x=THREE.MathUtils.clamp(player.position.x,-31,31);player.position.z=THREE.MathUtils.clamp(player.position.z,-64,32)}if(state.companion){const target=player.position.clone().add(new THREE.Vector3(-2,0,2).applyAxisAngle(new THREE.Vector3(0,1,0),player.rotation.y));const d=target.sub(companion.position);if(d.length()>1.1){companion.position.addScaledVector(d.normalize(),dt*4.2);companion.rotation.y=Math.atan2(d.x,d.z)}}}
 function updateEnemies(dt){for(const e of enemies){if(!e.alive||!e.mesh.visible)continue;const d=e.mesh.position.distanceTo(player.position);const active=e.boss?state.phase===PHASE.DEFEAT_BOSS:state.phase===PHASE.DEFEAT_SCOUTS;if(!active)continue;if(d<13&&d>2.1){const v=player.position.clone().sub(e.mesh.position).setY(0).normalize();e.mesh.position.addScaledVector(v,dt*(e.boss?2.25:2.8));e.mesh.rotation.y=Math.atan2(v.x,v.z)}if(d<2.35&&game.time>e.attackWait){e.attackWait=game.time+(e.boss?1.15:1.65);game.hp-=e.boss?19:10;toast(e.boss?'모르가드의 파쇄 충격 · HP 감소':'적의 공격 · HP 감소');if(game.hp<=0)resetAfterFall()}if(state.companion&&companion.position.distanceTo(e.mesh.position)<3.4&&game.time>e.lastHit+1.3){e.lastHit=game.time;e.hp-=9;if(e.hp<=0){e.alive=false;e.mesh.visible=false;if(e.boss)phaseEvent('boss');else phaseEvent('scout')}}}}
 function updatePrompt(){let t='';if(!game.dialogue){if(state.phase===PHASE.MEET_ELDER&&near(elder,4))t='E · 촌장 오르벤과 대화';else if(state.phase===PHASE.CLAIM_RELIC&&near(relic,4))t='E · 봉인함 조사';else if(state.phase===PHASE.RECRUIT&&near(companion,4))t='E · 세라와 대화'}$('prompt').className=t?'prompt':'';$('prompt').textContent=t}
 function updateCamera(){const target=player.position.clone().add(new THREE.Vector3(0,2.1,0));const off=new THREE.Vector3(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),Math.cos(yaw)*Math.cos(pitch)).multiplyScalar(distance);camera.position.lerp(target.clone().add(off),.12);camera.lookAt(target)}
-const clock=new THREE.Clock();function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);game.time+=dt;if(game.started&&!game.dialogue&&!game.ended){updatePlayer(dt);updateEnemies(dt);updatePrompt()}updateCamera();renderHud();renderer.render(scene,camera)}loop();
+const clock=new THREE.Clock();function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);game.time+=dt;if(game.started&&!game.dialogue&&!game.ended){updatePlayer(dt);updateEnemies(dt);updatePrompt()}updateVfx(dt);updateCamera();renderHud();renderer.render(scene,camera)}loop();
 setupMobileControls();
-if(testMode)window.__ashenCrownDebug={getPlayerPosition:()=>({x:player.position.x,y:player.position.y,z:player.position.z}),setPlayerPosition:(x,z)=>player.position.set(x,0,z),getCameraState:()=>({yaw,pitch,distance}),getGameState:()=>({hp:game.hp,potions:state.potions,phase:state.phase,kills:state.kills}),damagePlayer:n=>{game.hp=Math.max(1,game.hp-n);renderHud()},advancePhase:event=>phaseEvent(event),getEnemyHealths:()=>enemies.map(e=>({hp:e.hp,alive:e.alive,visible:e.mesh.visible,boss:e.boss}))};
+if(testMode)window.__ashenCrownDebug={getPlayerPosition:()=>({x:player.position.x,y:player.position.y,z:player.position.z}),setPlayerPosition:(x,z)=>player.position.set(x,0,z),getCameraState:()=>({yaw,pitch,distance}),getGameState:()=>({hp:game.hp,potions:state.potions,phase:state.phase,kills:state.kills}),damagePlayer:n=>{game.hp=Math.max(1,game.hp-n);renderHud()},advancePhase:event=>phaseEvent(event),getEnemyHealths:()=>enemies.map(e=>({hp:e.hp,alive:e.alive,visible:e.mesh.visible,boss:e.boss})),getVfxStats:()=>activeFx.reduce((stats,obj)=>{stats.active++;stats[obj.userData.fx.kind]=(stats[obj.userData.fx.kind]||0)+1;return stats},{active:0})};
 document.querySelector('#begin').onclick=()=>{document.querySelector('.intro').remove();game.started=true;say('카일 로언',['국경의 바람에서 피 냄새가 난다. 오르벤 촌장에게 상황을 들어야 한다.']);};
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 renderHud();
