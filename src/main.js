@@ -5,11 +5,12 @@ import { advance, createState, PHASE, questText } from './gameState.js';
 const root = document.querySelector('#game');
 root.innerHTML = `<div class="intro"><div class="panel"><small>ORIGINAL 3D FANTASY RPG</small><h1>재의 왕관</h1><h2>CHAPTER I · 잊힌 서약</h2><p>전쟁 전야, 국경 마을 로엔펠에는 왕국의 깃발 대신 검은 연기가 올랐다.<br>몰락한 새벽 기사단의 마지막 전령은 땅속에서 깨어나는 병기의 맥박을 듣는다.</p><button id="begin">운명의 문을 연다</button><p><small>WASD 이동 · 우클릭 드래그 카메라 · SPACE 공격 · Q 스킬 · E 상호작용 · R 회복 · 모바일 터치</small></p></div></div>`;
 
+const testMode = new URLSearchParams(location.search).has('testMode');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x73808d);
 scene.fog = new THREE.FogExp2(0x65717c, .012);
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, .1, 300);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: testMode });
 renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .9;
@@ -88,7 +89,7 @@ function updatePrompt(){let t='';if(!game.dialogue){if(state.phase===PHASE.MEET_
 function updateCamera(){const target=player.position.clone().add(new THREE.Vector3(0,2.1,0));const off=new THREE.Vector3(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),Math.cos(yaw)*Math.cos(pitch)).multiplyScalar(distance);camera.position.lerp(target.clone().add(off),.12);camera.lookAt(target)}
 const clock=new THREE.Clock();function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);game.time+=dt;if(game.started&&!game.dialogue&&!game.ended){updatePlayer(dt);updateEnemies(dt);updatePrompt()}updateCamera();renderHud();renderer.render(scene,camera)}loop();
 setupMobileControls();
-if(new URLSearchParams(location.search).has('testMode'))window.__ashenCrownDebug={getPlayerPosition:()=>({x:player.position.x,y:player.position.y,z:player.position.z}),setPlayerPosition:(x,z)=>player.position.set(x,0,z),getCameraState:()=>({yaw,pitch,distance}),getGameState:()=>({hp:game.hp,potions:state.potions,phase:state.phase,kills:state.kills}),damagePlayer:n=>{game.hp=Math.max(1,game.hp-n);renderHud()},advancePhase:event=>phaseEvent(event),getEnemyHealths:()=>enemies.map(e=>({hp:e.hp,alive:e.alive,visible:e.mesh.visible,boss:e.boss}))};
+if(testMode)window.__ashenCrownDebug={getPlayerPosition:()=>({x:player.position.x,y:player.position.y,z:player.position.z}),setPlayerPosition:(x,z)=>player.position.set(x,0,z),getCameraState:()=>({yaw,pitch,distance}),getGameState:()=>({hp:game.hp,potions:state.potions,phase:state.phase,kills:state.kills}),damagePlayer:n=>{game.hp=Math.max(1,game.hp-n);renderHud()},advancePhase:event=>phaseEvent(event),getEnemyHealths:()=>enemies.map(e=>({hp:e.hp,alive:e.alive,visible:e.mesh.visible,boss:e.boss}))};
 document.querySelector('#begin').onclick=()=>{document.querySelector('.intro').remove();game.started=true;say('카일 로언',['국경의 바람에서 피 냄새가 난다. 오르벤 촌장에게 상황을 들어야 한다.']);};
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 renderHud();

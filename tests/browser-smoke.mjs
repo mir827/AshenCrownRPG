@@ -41,6 +41,31 @@ function overlaps(a, b, gutter = 4) {
   return !(a.x + a.width + gutter <= b.x || b.x + b.width + gutter <= a.x || a.y + a.height + gutter <= b.y || b.y + b.height + gutter <= a.y);
 }
 
+async function assertCanvasPixels(page, label) {
+  await page.waitForTimeout(250);
+  const stats = await page.locator('canvas').evaluate(canvas => {
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    const width = Math.min(96, canvas.width);
+    const height = Math.min(96, canvas.height);
+    const x = Math.max(0, Math.floor(canvas.width / 2 - width / 2));
+    const y = Math.max(0, Math.floor(canvas.height / 2 - height / 2));
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    let alphaPixels = 0;
+    let min = 255;
+    let max = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] > 0) alphaPixels += 1;
+      const luminance = Math.round(pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722);
+      min = Math.min(min, luminance);
+      max = Math.max(max, luminance);
+    }
+    return { alphaPixels, range: max - min, width, height };
+  });
+  assert.ok(stats.alphaPixels > stats.width * stats.height * 0.9, `${label} canvas has transparent or missing pixels: ${JSON.stringify(stats)}`);
+  assert.ok(stats.range > 8, `${label} canvas appears blank or flat: ${JSON.stringify(stats)}`);
+}
+
 const browser = await chromium.launch({
   executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   headless: true,
@@ -58,6 +83,7 @@ await desktop.locator('#begin').click();
 await desktop.keyboard.press('KeyE');
 await desktop.keyboard.down('KeyW'); await desktop.waitForTimeout(350); await desktop.keyboard.up('KeyW');
 await desktop.mouse.move(800, 450); await desktop.mouse.down({ button: 'right' }); await desktop.mouse.move(900, 420); await desktop.mouse.up({ button: 'right' });
+await assertCanvasPixels(desktop, 'desktop');
 assert.equal(errors.length, 0, errors.join('\n'));
 await desktop.screenshot({ path: 'dist/runtime-smoke.png' });
 await desktop.close();
@@ -142,6 +168,7 @@ await pressTouch(mobile.locator('[data-touch-action="heal"]'));
 const afterHeal = await mobile.evaluate(() => window.__ashenCrownDebug.getGameState());
 assert.ok(afterHeal.hp > beforeHeal.hp, 'heal button did not restore HP');
 assert.ok(afterHeal.potions < beforeHeal.potions, 'heal button did not consume a potion');
+await assertCanvasPixels(mobile, 'mobile');
 
 assert.equal(errors.length, 0, errors.join('\n'));
 await mobile.screenshot({ path: 'dist/runtime-mobile-smoke.png', fullPage: true });
