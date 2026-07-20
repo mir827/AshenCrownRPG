@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { advance, createState, PHASE, questText } from '../src/gameState.js';
+const s = createState();
+assert.equal(s.phase, PHASE.MEET_ELDER);
+advance(s, 'elder');
+for (let i = 0; i < 3; i++) advance(s, 'scout');
+assert.equal(s.phase, PHASE.CLAIM_RELIC);
+advance(s, 'relic');
+assert.equal(s.level, 2); assert.equal(s.relic, true);
+advance(s, 'companion');
+assert.equal(s.companion, true); assert.equal(s.phase, PHASE.DEFEAT_BOSS);
+advance(s, 'boss');
+assert.equal(s.phase, PHASE.COMPLETE);
+assert.match(questText(s), /완료/);
+console.log('PASS: complete chapter state flow, item growth, companion and boss progression');
